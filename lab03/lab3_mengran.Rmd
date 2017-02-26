@@ -1,0 +1,212 @@
+---
+title: "Lab3 Mengran"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+library(maptools)
+library(sp)
+library(dplyr)
+library(maps)
+
+dir.create( "shapefiles" )
+
+setwd( "./shapefiles" )
+
+download.file("ftp://ftp2.census.gov/geo/tiger/TIGER2010/TRACT/2010/tl_2010_36067_tract10.zip", "onondaga census tracts.zip" )
+
+unzip( "onondaga census tracts.zip" )
+
+file.remove( "onondaga census tracts.zip" )
+
+
+dir()
+
+#tutorial https://www.youtube.com/watch?v=EZvdOjx47Kw&list=PLCuEIQl2BByhnFWu858xy5O0rfVAI94Hw   not the same process though
+
+syr <- readShapePoly( fn="tl_2010_36067_tract10", proj4string=CRS("+proj=longlat +datum=WGS84") )
+
+plot( syr, border="gray10")
+
+```
+
+
+
+```{r pressure, echo=FALSE}
+##census API 
+
+# install.packages("devtools")
+devtools::install_github("hrecht/censusapi")
+
+
+# Load the library
+library("censusapi")
+
+#my census key here
+censuskey <- "4a9f4388ad997978054658eeafcb1febfb33c535"
+
+
+#view apis
+apis <- listCensusApis()
+
+
+
+
+### median age: B01002A_001E, acs Total Population:B01001_001E, acs, Single Mothers Below Poverty Level	B17010_017E	acs, 
+
+
+
+
+
+myvars <- c("NAME", "B01002A_001E", "B01001_001E", "B17010_017E")
+
+
+
+
+acs5_2015 <- getCensus(name="acs5", vintage=2015, key=censuskey
+                       ,vars=myvars
+                       , region="tract:*"
+                       , regionin = "state: 36 + county: 067")
+
+```
+
+```{r}
+##Create choropleth maps that include a title and legend for each variable
+
+#rename variables
+acs5_2015 <- plyr::rename(acs5_2015, c("B01002A_001E"="MedianAge", "B01001_001E"="TotalPolulation", "B17010_017E"="SingleMomPoverty"))
+```
+
+
+
+```{r}
+
+#Mutate data
+acs5_2015 <- mutate(acs5_2015, SingleMomPoverty = SingleMomPoverty/TotalPolulation)
+
+
+#assign a color to age group, red = high, blue = low, this plot is about median age data
+
+color.function <- colorRampPalette( c("firebrick4","steel blue" ) )
+
+col.ramp <- color.function( 5 ) # number of groups you desire
+
+color.vector <- cut( rank(acs5_2015$MedianAge), breaks=5, labels=col.ramp )
+
+color.vector <- as.character( color.vector )
+
+this.order <- match( syr$TRACTCE10, acs5_2015$tract )
+
+color.vec.ordered <- color.vector[ this.order ]
+
+
+plot(syr, col=color.vec.ordered, main="Median Age in Onondaga County")
+map.scale( metric=F, ratio=F, relwidth = 0.15, cex=0.5 )
+
+min.x <- tapply( acs5_2015$MedianAge, color.vector, min )
+max.x <- tapply( acs5_2015$MedianAge, color.vector, max )
+
+legend.text <- paste( min.x, max.x, sep=" to ")
+
+
+
+legend( "bottomright", bg="white",
+        pch=19, pt.cex=0.8, cex=0.6,
+        legend=legend.text, 
+        col=col.ramp, 
+        box.col="white",
+        title="Median Age" 
+)
+
+
+
+
+
+
+```
+
+
+
+
+```{r}
+# create a plot about single mom in poverty rate
+
+
+color.function <- colorRampPalette( c("steel blue", "firebrick4") )
+
+col.ramp <- color.function( 5 ) # number of groups you desire
+
+color.vector <- cut( rank(acs5_2015$SingleMomPoverty), breaks=5, labels=col.ramp )
+
+color.vector <- as.character( color.vector )
+
+this.order <- match( syr$TRACTCE10, acs5_2015$tract )
+
+color.vec.ordered <- color.vector[ this.order ]
+
+min.x <- tapply( acs5_2015$SingleMomPoverty, color.vector, min )
+max.x <- tapply( acs5_2015$SingleMomPoverty, color.vector, max )
+
+legend.text <- paste( min.x, max.x, sep=" to ")
+
+plot(syr, col=color.vec.ordered, main="Rate of Single Mother in Poverty")
+map.scale( metric=F, ratio=F, relwidth = 0.15, cex=0.5)
+
+legend( "bottomright", bg="white",
+        pch=19, pt.cex=0.8, cex=0.4,
+        legend=legend.text, 
+        col=col.ramp, 
+        box.col="white",
+        title="Rate of Single Mother in Poverty" 
+)
+
+```
+
+
+
+
+```{r}
+#create a plot about rate of population receive SNAP in onondaga county
+color.function <- colorRampPalette( c("steel blue", "firebrick4") )
+
+col.ramp <- color.function( 5 ) # number of groups you desire
+
+color.vector <- cut( rank(acs5_2015$TotalPolulation), breaks=5, labels=col.ramp )
+
+color.vector <- as.character( color.vector )
+
+this.order <- match( syr$TRACTCE10, acs5_2015$tract )
+
+color.vec.ordered <- color.vector[ this.order ]
+
+
+plot(syr, col=color.vec.ordered, main="Total Population")
+map.scale( metric=F, ratio=F, relwidth = 0.15, cex=0.5 )
+
+
+min.x <- tapply( acs5_2015$TotalPolulation, color.vector, min )
+max.x <- tapply( acs5_2015$TotalPolulation, color.vector, max )
+
+legend.text <- paste( min.x, max.x, sep=" to ")
+
+
+legend( "bottomright", bg="white",
+        pch=19, pt.cex=1.5, cex=0.7,
+        legend=legend.text, 
+        col=col.ramp, 
+        box.col="white",
+        title="Population Per Tract" 
+)
+
+```
+
+```{r}
+
+```
+
