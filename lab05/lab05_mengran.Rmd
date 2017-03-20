@@ -1,0 +1,157 @@
+---
+title: "Lab05"
+output: github_document
+author: Mengran Gao
+---
+
+```{r load packages}
+knitr::opts_chunk$set( message = F, warning = F)
+
+library(dplyr)
+library(RCurl)
+library(ggmap)
+library(jsonlite)
+library(censusapi)
+library(sp)
+library(maps)
+library(maptools)
+library(memisc)
+
+
+```
+
+
+
+#load and create a dataset of home prices and assets collected from Zillow
+
+```{r zillow data}
+
+
+#read in housing data from Zillow
+
+
+zillow.url <- "https://raw.githubusercontent.com/lecy/hedonic-prices/master/Data/Housing%20Price%20In-Class%20Exercise%20(Responses).csv"
+zillow.dat <- read.csv(zillow.url, stringsAsFactors=FALSE )
+
+#subset for Street Addresses and Zip Codes
+str.zip <- zillow.dat[ , c("Street.Address.of.House","Zip.Code") ]
+
+#clean data, get rid of symbols that are not used in matching dataset
+str.zip$Street.Address.of.House <- gsub( ",", "", str.zip$Street.Address.of.House )
+str.zip$Street.Address.of.House <- gsub( "\\.", "", str.zip$Street.Address.of.House )
+
+#create address adding Syracuse, NY 
+address <- paste( str.zip$Street.Address.of.House, "Syracuse, NY", str.zip$zip, sep=", " )
+head(address)
+
+
+
+#Geocode addresses
+
+setwd("C:/Users/mgao05/Desktop/PAI INdenpendent study/lab5")
+
+#create file with lat.lon using geocode function
+#lat.long <- geocode( address )
+#write.csv(lat.long, file = "lat.lon.csv")
+
+lat.long <- read.csv("lat.lon.csv")
+#reorder lon.lat
+lat.long <- lat.long[ c("lon","lat")]
+#use cbind to bind str.zip and lat.long
+houses <- cbind(str.zip, lat.long)
+
+head(houses)
+
+
+
+```
+
+# Add census tracts FIPS ID to house and spatial join to census tract data
+
+```{r join}
+#read in onondoga shapefiles
+
+setwd( "C:/Users/mgao05/Desktop/PAI INdenpendent study/lab5/shapefiles")
+
+onondoga <- readShapePoly( fn="tl_2010_36067_tract10", proj4string=CRS("+proj=longlat +datum=WGS84") )
+
+#turn lat.long data into spatial points and use over function to match it with onongoda
+lat.long <- SpatialPoints(lat.long, proj4string=CRS("+proj=longlat +datum=WGS84") )
+poly.match.point <- over(lat.long, onondoga )
+
+#use cbind to combine dataframes
+houses.dat <- cbind( houses, poly.match.point )
+
+head(houses.dat)
+
+```
+
+# add census data to each home
+
+```{r add census}
+
+censuskey <- "4a9f4388ad997978054658eeafcb1febfb33c535"
+### median age: B01002A_001E, acs Total Population:B01001_001E, acs, Single Mothers Below Poverty Level	B17010_017E	acs, 
+
+#choose single mothers below poverty level and total population as variables
+myvars <- c("NAME", "B01001_001E", "B17010_017E")
+
+#download census data for selected variables
+acs5_2015 <- getCensus(name="acs5", vintage=2015, key=censuskey
+                       ,vars=myvars
+                       , region="tract:*"
+                       , regionin = "state: 36 + county: 067")
+
+#create a new variable of percentage single mother below poverty level in population
+
+acs5_2015 <- plyr::rename(acs5_2015, c("B17010_017E"="SingleMom.below.poverty", "B01001_001E"="Total.Population"))
+acs5_2015 <- mutate(acs5_2015, single.below.percent = SingleMom.below.poverty/Total.Population)
+
+
+#merge housing dataframe from above with census data by CENSUS TRACT
+housing.census.dat <- merge(x=houses.dat, y=acs5_2015, by.x="TRACTCE10", by.y="tract",all.x=T)
+
+head(housing.census.dat)
+
+
+
+
+```
+
+
+
+#spatial join for crime data
+
+```{r crime data}
+
+#load crime data
+crime.dat <- read.csv("https://raw.githubusercontent.com/lecy/hedonic-prices/master/Data/crime.lat.lon.csv", stringsAsFactors=FALSE )
+
+#subset long.lat data
+lat.long.coords <- crime.dat[ ,c("lon","lat")]  
+
+#overlay lat.long crime data to projection of shape files and add to onondoga map
+crime.map <- SpatialPoints( lat.long.coords, proj4string=CRS("+proj=longlat +datum=WGS84") )
+
+# identicalCRS( onondoga, crime.map ) check and this should be true 
+#use over function to overlay crimemap and onondaga
+crime.onondoga <- over( crime.map, onondoga ) 
+
+#turn crime in onondoga into data frame
+crime.onondoga  <- as.data.frame(crime.onondoga)
+
+#count number of crimes in census tract
+crime.onondoga  <-  as.data.frame(table(crime.onondoga$TRACTCE10))
+#rename variables
+crime.onondoga <- plyr::rename(crime.onondoga, c("Var1"="tract", "Freq"="crime number"))
+
+#merge housing dataframe with number of crimes by census tract 
+census.crime.dat <- merge(x=housing.census.dat, y=crime.onondoga, by.x="TRACTCE10", by.y="tract",all.x=T)
+
+head(census.crime.dat) 
+
+
+
+
+```
+
